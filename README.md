@@ -14,7 +14,7 @@ A panel will be displayed on the screen which shows the:
 
 ### How do I get set up? ###
 
-* Download the zip and place it in <user>\AppData\Roaming\NCSOFT\Wildstar\Addons
+* Download the zip and place the contained folder in <user>\AppData\Roaming\NCSOFT\Wildstar\Addons
 
 ### Who do I talk to? ###
 
