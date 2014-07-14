@@ -1,9 +1,13 @@
 -----------------------------------------------------------------------------------------------
 -- Client Lua Script for DPSDisplay
 -- Copyright (c) NCsoft. All rights reserved
+
+-- Version 1.1
+
 -----------------------------------------------------------------------------------------------
  
 require "Window"
+require "ChatSystemLib"
  
 -----------------------------------------------------------------------------------------------
 -- DPSDisplay Module Definition
@@ -22,8 +26,6 @@ function DPSDisplay:new(o)
     o = o or {}
     setmetatable(o, self)
     self.__index = self 
-
-    -- initialize variables here
 
     return o
 end
@@ -65,8 +67,8 @@ function DPSDisplay:OnDocLoaded()
 		
 		-- Register handlers for events, slash commands and timer, etc.
 		-- e.g. Apollo.RegisterEventHandler("KeyDown", "OnKeyDown", self)
-		Apollo.RegisterSlashCommand("dpsD", "OnDPSDisplayOn", self)
-		self.timer = ApolloTimer.Create(0.4, true, "OnTimer", self)
+		Apollo.RegisterSlashCommand("dpsD", "OnDPSDisplay", self)
+		self.timer = ApolloTimer.Create(0.2, true, "OnTimer", self)
 		
 		Apollo.RegisterEventHandler("CombatLogDamage", "onDamageDone", self)
 		
@@ -75,18 +77,7 @@ function DPSDisplay:OnDocLoaded()
 		Apollo.RegisterEventHandler("DamageOrHealingDone",		"OnDamageOrHealing", self)
 		Apollo.RegisterEventHandler("CombatLogTransference", 	"OnCombatLogTransference", self)
 		
-		self.dpsText = self.wndMain:FindChild("dpsText")
-		self.dpsVals = self.wndMain:FindChild("dpsVals")
-
-		self.dmg = 0
-		self.highestDmg = 0
-		self.highestCrit = 0
-		self.highestNonCrit = 0
-		
-		self.highestDPS = 0		
-		self.dmgReadings = {}
-		
-		self.timeWindow = 3
+		self:setup()
 		
 		self:OnTimer() -- Force an update
 		self.wndMain:Invoke()
@@ -98,9 +89,59 @@ end
 -----------------------------------------------------------------------------------------------
 -- Define general functions here
 
--- on SlashCommand "/dpsD"
-function DPSDisplay:OnDPSDisplayOn()
-	self.wndMain:Invoke() -- show the window
+function DPSDisplay:setup()
+
+	print("setup")
+
+	self.dpsText = self.wndMain:FindChild("dpsText")
+	self.dpsVals = self.wndMain:FindChild("dpsVals")
+
+	self.dmg = 0
+	self.highestDmg = 0
+	self.highestCrit = 0
+	self.highestNonCrit = 0
+	
+	self.highestDPS = 0		
+	self.dmgReadings = {}
+	
+	self.timeWindow = 10
+end
+
+-- on Slash "dpsD"
+function DPSDisplay:OnDPSDisplay(strCmd, strArg)
+
+	if strArg == "" then
+		self:OnToggleDPSDisplay()
+	else
+		local args = {}
+		for arg in strArg:gmatch("%S+") do table.insert(args, arg) end
+
+		if args[1] == "timewindow" and args[2] then
+			self.timeWindow = tonumber(args[2])
+			local strConfirmation = "Updated timeWindow to " .. args[2] .. " seconds."
+			ChatSystemLib.PostOnChannel(ChatSystemLib.ChatChannel_Debug, strConfirmation, "")
+			
+			for k,v in pairs(self.dmgReadings) do
+				self.dmgReadings[k] = nil
+			end							
+		elseif args[1] == "help" then
+			local strHelp = [[
+			
+			/dpsD - Toggles visibility of the DPS DPSDisplay
+			/dpsD timewindow 10 - Sets the time window to 10 seconds
+			/dpsD help - Displays this help text
+			]]
+			ChatSystemLib.PostOnChannel(ChatSystemLib.ChatChannel_Debug, strHelp, "")
+		end		
+	end
+end
+
+function DPSDisplay:OnToggleDPSDisplay()
+	if self.wndMain:IsVisible() then
+		self.wndMain:Show(false)
+	else
+		self.wndMain:Show(true)
+	end
 end
 
 -- on timer
@@ -163,14 +204,24 @@ function DPSDisplay:updateTextDisplay()
 								.. "\nCurrent DPS:  "
 								.. "\nHighest DPS:  "
 							)
+		
+		local currDPS = self:getCurrentDPS()
+		if currDPS <= 0 then
+			currDPS = 0
+		end
+
+		local highDPS = self:getHighestDPS()
+		if highDPS <= 0 then
+			highDPS = 0
+		end
 							
 		self.dpsVals:SetText(
 								self.dmg
 								.. "\n" .. self:getHighestDamage()
 								.. "\n" .. self:getHighestCrit()
 								.. "\n" .. self:getHighestNonCrit()
-								.. "\n" .. self:getCurrentDPS()
-								.. "\n" .. self:getHighestDPS()
+								.. "\n" .. math.floor(currDPS)
+								.. "\n" .. math.floor(highDPS)
 							)
 
 	end
@@ -180,7 +231,7 @@ function DPSDisplay:addDamageReading(dmg, crit)
 	self.dmg = dmg	
 	dmgData = 	{
 					dmg = dmg,
-					timestamp = os.time()
+					timestamp = os.clock()
 				}
 	
 	table.insert(self.dmgReadings, dmgData) -- add to end of the list
@@ -201,26 +252,50 @@ function DPSDisplay:addDamageReading(dmg, crit)
 end
 
 function DPSDisplay:pruneDamageList()
+	local i = 1
 	for k,v in pairs(self.dmgReadings) do
-		local timestamp = v.timestamp
-		if(os.difftime(os.time(), timestamp) > self.timeWindow) then
-			self.dmgReadings[k] = nil
-		end
+		local timeStamp = self.dmgReadings[i].timestamp
+		if(os.clock() - self.dmgReadings[i].timestamp) > self.timeWindow then
+			table.remove(self.dmgReadings, i)
+		else
+			i = i + 1
+		end	
 	end
-
 end
 
 function DPSDisplay:getCurrentDPS()
+
+	if(#self.dmgReadings < 2) then
+		return 0
+	end
+
 	dmgSum = 0
+	local oldestTime = 0
+	local newestTime = 0
+	
 	for k,v in pairs(self.dmgReadings) do
+		if oldestTime == 0 then
+			oldestTime = v.timestamp
+		end
+		
 		local dmgReading = v.dmg
 		dmgSum = dmgSum + dmgReading
+		
+		newestTime = v.timestamp
+	end
+
+	rangeOfTime = newestTime - oldestTime
+	rangeOfTime = self.timeWindow
+	if rangeOfTime > 0 then
+		dps = (dmgSum / rangeOfTime)
+	else
+		dps = 0
 	end
 	
-	dps = math.floor(dmgSum / self.timeWindow)
 	if dps > self.highestDPS then
 		self.highestDPS = dps
 	end
+	
 	return dps
 end
 
