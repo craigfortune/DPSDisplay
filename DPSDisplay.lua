@@ -95,6 +95,7 @@ function DPSDisplay:setup()
 
 	self.dpsText = self.wndMain:FindChild("dpsText")
 	self.dpsVals = self.wndMain:FindChild("dpsVals")
+	self.dpstimeWindowText = self.wndMain:FindChild("timeWindowText")
 
 	self.dmg = 0
 	self.highestDmg = 0
@@ -117,24 +118,46 @@ function DPSDisplay:OnDPSDisplay(strCmd, strArg)
 		for arg in strArg:gmatch("%S+") do table.insert(args, arg) end
 
 		if args[1] == "timewindow" and args[2] then
-			self.timeWindow = tonumber(args[2])
-			local strConfirmation = "Updated timeWindow to " .. args[2] .. " seconds."
-			ChatSystemLib.PostOnChannel(ChatSystemLib.ChatChannel_Debug, strConfirmation, "")
-			
-			for k,v in pairs(self.dmgReadings) do
-				self.dmgReadings[k] = nil
-			end							
+			self:setTimeWindow(args[2])			
 		elseif args[1] == "help" then
-			local strHelp = [[
-			
-			/dpsD - Toggles visibility of the DPS DPSDisplay
-			/dpsD timewindow 10 - Sets the time window to 10 seconds
-			/dpsD help - Displays this help text
-			]]
-			ChatSystemLib.PostOnChannel(ChatSystemLib.ChatChannel_Debug, strHelp, "")
-		end		
+			self:displayHelp()
+		else
+			-- default catch if we don't know what the user entered
+			local strError = "DPSDisplay: Command <" .. args[1] .. "> not understood. Type /dpsD help for available commands"
+			ChatSystemLib.PostOnChannel(ChatSystemLib.ChatChannel_Debug, strError, "")
+		end				
 	end
 end
+
+function DPSDisplay:displayHelp()
+	local strHelp = [[
+			
+	/dpsD - Toggles visibility of the DPS DPSDisplay
+	/dpsD timewindow 10 - Sets the time window to 10 seconds
+	/dpsD help - Displays this help text
+	]]
+	ChatSystemLib.PostOnChannel(ChatSystemLib.ChatChannel_Debug, strHelp, "")
+end
+
+function DPSDisplay:setTimeWindow(timeWindowValue)	
+	local tmpTimeWindow = tonumber(timeWindowValue)
+	
+	if tmpTimeWindow < 1 or tmpTimeWindow > 20 then
+		local strConfirmation = "DPSDisplay: Please enter a value between 1 and 20"	
+		ChatSystemLib.PostOnChannel(ChatSystemLib.ChatChannel_Debug, strConfirmation, "")
+	else
+		self.timeWindow = tmpTimeWindow
+		local strConfirmation = "DPSDisplay: Updated timeWindow to " .. self.timeWindow .. " seconds."	
+		ChatSystemLib.PostOnChannel(ChatSystemLib.ChatChannel_Debug, strConfirmation, "")
+	end
+		
+	-- Clear out the current ones so we don't get some funkiness going on
+	for k,v in pairs(self.dmgReadings) do
+		self.dmgReadings[k] = nil
+	end							
+end
+
+-------------------------
 
 function DPSDisplay:OnToggleDPSDisplay()
 	if self.wndMain:IsVisible() then
@@ -144,7 +167,6 @@ function DPSDisplay:OnToggleDPSDisplay()
 	end
 end
 
--- on timer
 function DPSDisplay:OnTimer()
 	self:pruneDamageList()
 	self:updateTextDisplay()
@@ -223,6 +245,8 @@ function DPSDisplay:updateTextDisplay()
 								.. "\n" .. math.floor(currDPS)
 								.. "\n" .. math.floor(highDPS)
 							)
+							
+		self.dpstimeWindowText:SetText("( Time window: " .. self.timeWindow .. " seconds )")
 
 	end
 end
